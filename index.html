@@ -31,6 +31,7 @@ h1{font-family:var(--display);font-stretch:80%;font-weight:800;font-size:1.45rem
 #q{width:100%;box-sizing:border-box;font:inherit;font-size:1.05rem;padding:12px 14px;border:1.5px solid var(--line);border-radius:10px;background:var(--panel);color:var(--fg)}
 #q:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
 .filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+#extra select{flex:1 1 140px}
 .chip{font:inherit;font-size:.85rem;font-weight:500;padding:6px 12px;border-radius:999px;border:1px solid var(--line);background:var(--panel);color:var(--fg);cursor:pointer}
 .chip[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
 .chip:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
@@ -74,7 +75,15 @@ select{font:inherit;font-size:.85rem;padding:6px 8px;border-radius:8px;border:1p
  <div class="filters">
   <select id="brand" aria-label="Brand"><option value="">All brands</option><option value="Sony">Sony</option><option value="Daikin">Daikin</option><option value="LG">LG</option><option value="Voltas">Voltas</option><option value="Voltas Beko">Voltas Beko</option><option value="Blue Star">Blue Star</option><option value="Kenstar">Kenstar</option><option value="Microtek">Microtek</option></select>
   <select id="cat" aria-label="Category"><option value="">All categories</option></select>
+  <button type="button" class="chip" id="more" aria-expanded="false">More filters</button>
   <span class="count" id="count"></span>
+ </div>
+ <div class="filters" id="extra" hidden>
+  <select id="price" aria-label="Selling price"><option value="">Any price</option><option value="0-10000">Under ₹10,000</option><option value="10000-20000">₹10,000 – 20,000</option><option value="20000-35000">₹20,000 – 35,000</option><option value="35000-50000">₹35,000 – 50,000</option><option value="50000-100000">₹50,000 – 1 lakh</option><option value="100000-1e12">Above ₹1 lakh</option></select>
+  <select id="star" aria-label="Star rating"><option value="">Any star</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option></select>
+  <select id="feat" aria-label="Type or size"><option value="">Any type or size</option></select>
+  <select id="sort" aria-label="Sort"><option value="">Sort: list order</option><option value="pa">Price: low to high</option><option value="pd">Price: high to low</option><option value="md">Margin: highest first</option></select>
+  <button type="button" class="chip" id="clear">Clear</button>
  </div>
 </header>
 <div class="list" id="list"></div>
@@ -105,10 +114,23 @@ const f=n=>n==null?"–":"₹"+Math.round(n).toLocaleString("en-IN");
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const norm=s=>String(s).toUpperCase().replace(/[^A-Z0-9]/g,"");
 const bsel=document.getElementById("brand"),q=document.getElementById("q"),cat=document.getElementById("cat"),list=document.getElementById("list"),count=document.getElementById("count");
-[...new Set(D.map(r=>r[1]))].forEach(c=>{const o=document.createElement("option");o.value=c;o.textContent=c;cat.appendChild(o)});
+const $=id=>document.getElementById(id),price=$("price"),star=$("star"),feat=$("feat"),sort=$("sort");
+const starOf=r=>{const m=((r[4]||"")+" "+(r[13]||[]).join(" ")).match(/(\d) Star/);return m?m[1]:""};
+const featsOf=r=>[...new Set([...(r[13]||[]),r[3]].filter(x=>x&&!/Star$|^≈|cm screen$/.test(x)))];
+function fill(sel,vals,first){const v=sel.value;sel.innerHTML=`<option value="">${first}</option>`+vals.map(x=>`<option>${esc(x)}</option>`).join("");sel.value=vals.includes(v)?v:"";}
+const nat=(a,b)=>a.localeCompare(b,undefined,{numeric:true});
+function refreshOpts(){
+ const byB=D.filter(r=>!bsel.value||r[0]===bsel.value);
+ fill(cat,[...new Set(byB.map(r=>r[1]))],"All categories");
+ const byC=byB.filter(r=>!cat.value||r[1]===cat.value);
+ fill(feat,[...new Set(byC.flatMap(featsOf))].sort(nat),"Any type or size");
+}
+refreshOpts();
 function render(){
  const t=norm(q.value);
- const rows=D.filter(r=>(!bsel.value||r[0]===bsel.value)&&(!cat.value||r[1]===cat.value)&&(!t||norm(r[2]).includes(t)||norm(r[3]).includes(t)||norm(r[4]).includes(t)||(r[13]||[]).some(x=>norm(x).includes(t))));
+ const [pl,ph]=price.value?price.value.split("-").map(Number):[0,0];
+ let rows=D.filter(r=>(!bsel.value||r[0]===bsel.value)&&(!cat.value||r[1]===cat.value)&&(!price.value||(r[9]>=pl&&r[9]<ph))&&(!star.value||starOf(r)===star.value)&&(!feat.value||featsOf(r).includes(feat.value))&&(!t||norm(r[2]).includes(t)||norm(r[3]).includes(t)||norm(r[4]).includes(t)||(r[13]||[]).some(x=>norm(x).includes(t))));
+ if(sort.value){const k=sort.value==="md"?(r=>r[10]==null?-1e12:r[10]):(r=>r[9]);rows=[...rows].sort((a,b)=>sort.value==="pa"?k(a)-k(b):k(b)-k(a));}
  count.textContent=rows.length+" of "+D.length;
  list.innerHTML=rows.length?rows.map(r=>{const[b,c,m,sz,st,mrp,base,bn,nlc,lsp,mg,note,dt,dl]=r;const loss=mg!=null&&mg<0;
   return `<article class="row${loss?" loss":""}">
@@ -119,8 +141,10 @@ function render(){
   <div class="nums"><span>NLC <em>${f(nlc)}</em></span>${mrp?`<span>MRP <em>${f(mrp)}</em></span>`:""}${bn!=="Net"?`<span>${esc(bn)} <em>${f(base)}</em></span>`:""}${mg!=null?`<span>Margin <em class="${loss?"neg":""}">${f(mg)}</em></span>`:""}<span>${esc(dt)}</span></div>
   ${note?`<div class="note">${esc(note)}</div>`:""}</article>`}).join(""):'<p class="empty">No model matches. Try fewer letters, like "65XR".</p>';
 }
-bsel.addEventListener("change",render);
-q.addEventListener("input",render);cat.addEventListener("change",render);
+bsel.addEventListener("change",()=>{refreshOpts();render()});cat.addEventListener("change",()=>{refreshOpts();render()});
+q.addEventListener("input",render);[price,star,feat,sort].forEach(x=>x.addEventListener("change",render));
+$("more").addEventListener("click",()=>{const e=$("extra"),open=e.hidden;e.hidden=!open;$("more").setAttribute("aria-expanded",open);$("more").textContent=open?"Fewer filters":"More filters"});
+$("clear").addEventListener("click",()=>{[bsel,cat,price,star,feat,sort].forEach(x=>x.value="");q.value="";refreshOpts();render()});
 render();
 
 }
